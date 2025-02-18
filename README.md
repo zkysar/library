@@ -2,6 +2,10 @@
 
 A static calendar displaying library events.
 
+## Visualize the Data
+
+The data is visible with [GitHub Pages](https://zkysar.github.io/library/).
+
 ## Updating Events
 
 To update the events displayed in the calendar:
