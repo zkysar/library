@@ -16,7 +16,6 @@ def main():
     if not AGENTQL_API_KEY:
         raise ValueError("AGENTQL_API_KEY not found in .env file")
 
-
     # Set up logging
     logging.basicConfig(level=logging.INFO)
     log = logging.getLogger(__name__)
@@ -25,14 +24,15 @@ def main():
     if not calendar_url:
         logging.error("No calendar found")
         return
-    
+
     events_list = get_events_list(calendar_url)
     if not events_list:
         logging.error("No events found")
         return
     print(events_list)
 
-def find_calendar_website(url : str):
+
+def find_calendar_website(url: str):
     with sync_playwright() as p, p.chromium.launch(headless=True) as browser:
         # Create a new page in the browser and wrap it to get access to the AgentQL's querying API
         page = agentql.wrap(browser.new_page())
@@ -48,12 +48,13 @@ def find_calendar_website(url : str):
         response = page.query_data(query)
         print(response)
         return response["calendar_url"]
-        
-def get_events_list(url : str):
+
+
+def get_events_list(url: str):
     with sync_playwright() as p, p.chromium.launch(headless=True) as browser:
         page = agentql.wrap(browser.new_page())
         page.goto(url)
-        
+
         query = """
         {
             events[] {
