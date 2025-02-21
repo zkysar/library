@@ -56,14 +56,68 @@
         let events = [];
         let map;
 
-        // Fetch events from events.json
+        // Fetch events from CSV file
         async function fetchEvents() {
             try {
-                const response = await fetch('events.json');
+                console.log('Fetching events...');
+                const response = await fetch('library_events.csv');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                return await response.json();
+                const csvText = await response.text();
+                console.log('CSV content received:', csvText.substring(0, 200) + '...');
+                events = []; // Clear existing events
+                
+                // Parse CSV using Papa Parse
+                const results = Papa.parse(csvText, {
+                    header: false,
+                    skipEmptyLines: true,
+                    delimiter: ','
+                });
+                console.log('Parsed CSV results:', results);
+                
+                for (const row of results.data) {
+                    if (!row[4]) continue; // Skip if no event data
+                    
+                    const timestamp = row[0];
+                    const libraryName = row[1];
+                    const libraryUrl = row[2];
+                    const libraryAddress = row[3];
+                    const eventData = row[4];
+                    
+                    // Parse the event data string into an object
+                    let eventsList = [];
+                    try {
+                        eventsList = JSON.parse(eventData);
+                    } catch (e) {
+                        console.warn('Failed to parse event data for library:', libraryName, e);
+                        continue;
+                    }
+                    
+                    // Add each event to the events array
+                    for (const event of eventsList) {
+                        if (!event.event_title) continue; // Skip events without titles
+                        
+                        // Parse the date string into a Date object
+                        const dateParts = event.event_date.split(',');
+                        const dateStr = dateParts[0].trim() + ', 2025' + (dateParts[1] || '');
+                        const eventDate = new Date(dateStr);
+                        
+                        events.push({
+                            title: event.event_title,
+                            description: event.event_description || '',
+                            start: eventDate.toISOString().split('T')[0], // Format: YYYY-MM-DD
+                            url: event.event_link,
+                            library: {
+                                name: libraryName,
+                                url: libraryUrl,
+                                address: libraryAddress
+                            }
+                        });
+                    }
+                }
+                
+                return events;
             } catch (error) {
                 console.error('Error loading events:', error);
                 document.getElementById('calendar').innerHTML = '<div class="alert alert-danger">Error loading events. Please try again later.</div>';
@@ -74,6 +128,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.js'></script>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             // Initialize map
@@ -114,35 +169,6 @@
                     });
             }
 
-            // Initialize calendar
-            const calendarEl = document.getElementById('calendar');
-            const calendar = new FullCalendar.Calendar(calendarEl, {
-                initialView: 'dayGridMonth',
-                headerToolbar: {
-                    left: 'prev,next today',
-                    center: 'title',
-                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
-                },
-                events: events,
-                eventClick: function (info) {
-                    const modal = new bootstrap.Modal(document.getElementById('eventModal'));
-                    const modalTitle = document.querySelector('#eventModal .modal-title');
-                    const modalBody = document.querySelector('#eventDescription');
-                    const modalLink = document.querySelector('#eventLink');
-
-                    modalTitle.textContent = info.event.title;
-                    modalBody.textContent = info.event.extendedProps.description || 'No description available';
-
-                    if (info.event.url) {
-                        modalLink.innerHTML = `<a href="${info.event.url}" target="_blank" class="btn btn-primary">Event Details</a>`;
-                    } else {
-                        modalLink.innerHTML = '';
-                    }
-
-                    modal.show();
-                }
-            });
-            calendar.render();
         }); 
 
         // Start the application when the page loads
@@ -165,32 +191,39 @@
                 // Process events for map
                 const libraries = {};
                 events.forEach(event => {
-                    const addressMatch = event.description.match(/Address: ([^\n]+)/i);
-                    if (addressMatch) {
-                        const address = addressMatch[1].trim();
-                        if (!libraries[address]) {
-                            libraries[address] = [];
-                        }
-                        libraries[address].push(event);
+                    const library = event.library;
+                    if (!libraries[library.address]) {
+                        libraries[library.address] = {
+                            name: library.name,
+                            url: library.url,
+                            events: []
+                        };
                     }
+                    libraries[library.address].events.push(event);
                 });
 
                 // Add markers for each library
-                Object.entries(libraries).forEach(([address, libraryEvents]) => {
+                Object.entries(libraries).forEach(([address, library]) => {
                     fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
                         .then(response => response.json())
                         .then(data => {
                             if (data && data.length > 0) {
                                 const marker = L.marker([data[0].lat, data[0].lon]).addTo(map);
-                                marker.bindPopup(`<b>${libraryEvents[0].description.match(/Library: ([^\n]+)/i)[1]}</b><br>${address}<br>Events: ${libraryEvents.length}`);
+                                const popupContent = `
+                                    <b>${library.name}</b><br>
+                                    ${address}<br>
+                                    <a href="${library.url}" target="_blank">Library Website</a><br>
+                                    Events: ${library.events.length}
+                                `;
+                                marker.bindPopup(popupContent);
                             }
                         })
                         .catch(error => console.error('Error geocoding address:', error));
                 });
 
                 // Initialize calendar
-                var calendarEl = document.getElementById('calendar');
-                var calendar = new FullCalendar.Calendar(calendarEl, {
+                const calendarEl = document.getElementById('calendar');
+                const calendar = new FullCalendar.Calendar(calendarEl, {
                     initialView: 'dayGridMonth',
                     headerToolbar: {
                         left: 'prev,next today',
@@ -199,6 +232,8 @@
                     },
                     events: events,
                     eventClick: function(info) {
+                        info.jsEvent.preventDefault(); // Prevent the default URL navigation
+                        
                         const modal = new bootstrap.Modal(document.getElementById('eventModal'));
                         const modalTitle = document.querySelector('#eventModal .modal-title');
                         const modalBody = document.querySelector('#eventModal .modal-body');
@@ -209,8 +244,15 @@
                         if (info.event.extendedProps.description) {
                             content += info.event.extendedProps.description + '<br><br>';
                         }
+                        
+                        // Add library information
+                        const library = info.event.extendedProps.library;
+                        if (library) {
+                            content += `<b>${library.name}</b><br>${library.address}<br><br>`;
+                        }
+                        
                         if (info.event.url) {
-                            content += `<a href="${info.event.url}" target="_blank">More Information</a>`;
+                            content += `<a href="${info.event.url}" target="_blank" class="btn btn-primary">View Event Details</a>`;
                         }
                         
                         modalBody.innerHTML = content;
@@ -225,7 +267,11 @@
         }
 
         // Start the application when the page loads
-        document.addEventListener('DOMContentLoaded', initializeApp);
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('DOM loaded, initializing app...');
+            await initializeApp();
+            console.log('App initialized with events:', events);
+        });
     </script>
 </body>
 
