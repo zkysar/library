@@ -51,6 +51,13 @@
     </div>
 
 
+    <!-- Load external dependencies first -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.js'></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    
+    <!-- Application code -->
     <script>
         // Global state
         let events = [];
@@ -98,22 +105,46 @@
                     for (const event of eventsList) {
                         if (!event.event_title) continue; // Skip events without titles
                         
-                        // Parse the date string into a Date object
-                        const dateParts = event.event_date.split(',');
-                        const dateStr = dateParts[0].trim() + ', 2025' + (dateParts[1] || '');
-                        const eventDate = new Date(dateStr);
+                        let start = null;
                         
-                        events.push({
-                            title: event.event_title,
-                            description: event.event_description || '',
-                            start: eventDate.toISOString().split('T')[0], // Format: YYYY-MM-DD
-                            url: event.event_link,
-                            library: {
-                                name: libraryName,
-                                url: libraryUrl,
-                                address: libraryAddress
+                        // Only parse the date if it exists
+                        if (event.event_date) {
+                            try {
+                                // Try to parse the date in various formats
+                                let dateStr = event.event_date;
+                                
+                                // First try to find a month and day pattern anywhere in the string
+                                const monthDayMatch = dateStr.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]* \d{1,2}/);
+                                if (!monthDayMatch) {
+                                    throw new Error('Could not find month and day in: ' + dateStr);
+                                }
+                                
+                                // Use the matched date and add the year
+                                dateStr = monthDayMatch[0] + ', 2025';
+                                const date = new Date(dateStr);
+                                if (isNaN(date.getTime())) {
+                                    throw new Error('Invalid date: ' + dateStr);
+                                }
+                                start = date.toISOString().split('T')[0];
+                            } catch (e) {
+                                console.warn('Failed to parse date:', event.event_date, e);
                             }
-                        });
+                        }
+                        
+                        // Only add events with valid dates
+                        if (start) {
+                            events.push({
+                                title: event.event_title,
+                                description: event.event_description || '',
+                                start: start,
+                                url: event.event_link,
+                                library: {
+                                    name: libraryName,
+                                    url: libraryUrl,
+                                    address: libraryAddress
+                                }
+                            });
+                        }
                     }
                 }
                 
@@ -124,69 +155,22 @@
                 return [];
             }
         }
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.js'></script>
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            // Initialize map
-            if (!map) {
-                map = L.map('map').setView([37.8715, -122.2730], 9);
-            }
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: ' OpenStreetMap contributors'
-            }).addTo(map);
-
-            // Create markers for libraries
-            const libraries = {};
-            events.forEach(event => {
-                const addressMatch = event.description.match(/Address: ([^\n]+)/i);
-                if (addressMatch) {
-                    const address = addressMatch[1].trim();
-                    if (!libraries[address]) {
-                        libraries[address] = {
-                            name: event.description.match(/Library: ([^\n]+)/i)[1].trim(),
-                            events: []
-                        };
-                    }
-                    libraries[address].events.push(event);
-                }
-            });
-
-            // Add markers to map
-            for (const [address, library] of Object.entries(libraries)) {
-                const geocodeUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-                fetch(geocodeUrl)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data && data[0]) {
-                            const marker = L.marker([data[0].lat, data[0].lon])
-                                .addTo(map)
-                                .bindPopup(`<b>${library.name}</b><br>${address}<br>${library.events.length} events`);
-                        }
-                    });
-            }
-
-        }); 
-
-        // Start the application when the page loads
-        document.addEventListener('DOMContentLoaded', initializeApp);
 
         // Initialize the application
         async function initializeApp() {
             try {
+                // Fetch events first
                 events = await fetchEvents();
-                if (events.length === 0) return;
+                if (!events || events.length === 0) {
+                    throw new Error('No events loaded');
+                }
 
                 // Initialize map
-                if (!map) {
-                    map = L.map('map').setView([37.8044, -122.2712], 10);
-                }
-                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                    attribution: ' OpenStreetMap contributors'
-                }).addTo(map);
+                map = L.map('map').setView([37.8715, -122.2730], 9);
+                const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                });
+                tileLayer.addTo(map);
 
                 // Process events for map
                 const libraries = {};
@@ -208,7 +192,7 @@
                         .then(response => response.json())
                         .then(data => {
                             if (data && data.length > 0) {
-                                const marker = L.marker([data[0].lat, data[0].lon]).addTo(map);
+                                const marker = L.marker([data[0].lat, data[0].lon]);
                                 const popupContent = `
                                     <b>${library.name}</b><br>
                                     ${address}<br>
@@ -216,6 +200,7 @@
                                     Events: ${library.events.length}
                                 `;
                                 marker.bindPopup(popupContent);
+                                marker.addTo(map);
                             }
                         })
                         .catch(error => console.error('Error geocoding address:', error));
@@ -232,47 +217,41 @@
                     },
                     events: events,
                     eventClick: function(info) {
-                        info.jsEvent.preventDefault(); // Prevent the default URL navigation
-                        
+                        info.jsEvent.preventDefault();
+                        const event = info.event;
                         const modal = new bootstrap.Modal(document.getElementById('eventModal'));
-                        const modalTitle = document.querySelector('#eventModal .modal-title');
-                        const modalBody = document.querySelector('#eventModal .modal-body');
                         
-                        modalTitle.textContent = info.event.title;
+                        // Set modal content
+                        document.querySelector('#eventModal .modal-title').textContent = event.title;
+                        let modalBody = `
+                            <p><strong>Library:</strong> ${event._def.extendedProps.library.name}</p>
+                            <p><strong>Date:</strong> ${event.start.toLocaleDateString()}</p>
+                        `;
                         
-                        let content = '';
-                        if (info.event.extendedProps.description) {
-                            content += info.event.extendedProps.description + '<br><br>';
+                        if (event._def.extendedProps.description) {
+                            modalBody += `<p><strong>Description:</strong> ${event._def.extendedProps.description}</p>`;
                         }
                         
-                        // Add library information
-                        const library = info.event.extendedProps.library;
-                        if (library) {
-                            content += `<b>${library.name}</b><br>${library.address}<br><br>`;
+                        if (event._def.url) {
+                            modalBody += `<p><a href="${event._def.url}" target="_blank" class="btn btn-primary">Event Details</a></p>`;
                         }
                         
-                        if (info.event.url) {
-                            content += `<a href="${info.event.url}" target="_blank" class="btn btn-primary">View Event Details</a>`;
-                        }
-                        
-                        modalBody.innerHTML = content;
+                        document.querySelector('#eventModal .modal-body').innerHTML = modalBody;
                         modal.show();
                     }
                 });
+                
                 calendar.render();
+                
             } catch (error) {
                 console.error('Error initializing application:', error);
-                document.getElementById('calendar').innerHTML = '<div class="alert alert-danger">Error loading calendar. Please try again later.</div>';
+                document.getElementById('calendar').innerHTML = 
+                    '<div class="alert alert-danger">Error initializing application. Please try again later.</div>';
             }
         }
-
+        
         // Start the application when the page loads
-        document.addEventListener('DOMContentLoaded', async () => {
-            console.log('DOM loaded, initializing app...');
-            await initializeApp();
-            console.log('App initialized with events:', events);
-        });
+        document.addEventListener('DOMContentLoaded', initializeApp);
     </script>
 </body>
-
 </html>
