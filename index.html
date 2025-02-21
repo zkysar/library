@@ -18,35 +18,41 @@
             font-style: italic;
         }
 
-        #map {
+        #map, #word-cloud {
             height: 400px;
             margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
     </style>
 </head>
 
 <body>
-    <div class="container mt-4">
-        <h1 class="text-center mb-4">Library Events Calendar</h1>
+    <div class="container-fluid px-3 px-sm-4 mt-4">
+        <h1 class="text-center h2 mb-3 mb-sm-4">Library Events Calendar</h1>
         
         <!-- Search Bar -->
-        <div class="row mb-4">
-            <div class="col-md-8 offset-md-2">
+        <div class="row mb-3 mb-sm-4">
+            <div class="col-12 col-md-8 offset-md-2">
                 <div class="input-group">
-                    <input type="text" id="search-input" class="form-control" placeholder="Search events (supports regex)...">
+                    <input type="text" id="search-input" class="form-control" placeholder="Search events...">
                     <button class="btn btn-outline-secondary" type="button" id="search-clear">Clear</button>
                 </div>
-                <div class="form-text">Search in event titles, library names, and addresses</div>
+                <div class="form-text small">Search in event titles, library names, and addresses</div>
             </div>
         </div>
 
-        <div id="map"></div>
-        <div id="calendar"></div>
-        <div class="mt-4">
-            <h3 class="text-center mb-3">Popular Event Topics</h3>
-            <div id="word-cloud" class="text-center" style="height: 300px;"></div>
+        <div class="row g-3 mb-3 mb-sm-4">
+            <div class="col-12 col-md-6">
+                <div id="map"></div>
+            </div>
+            <div class="col-12 col-md-6">
+                <div id="word-cloud"></div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div id="calendar"></div>
+            </div>
         </div>
     </div>
 
