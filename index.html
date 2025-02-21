@@ -32,6 +32,10 @@
         <h1 class="text-center mb-4">Library Events Calendar</h1>
         <div id="map"></div>
         <div id="calendar"></div>
+        <div class="mt-4">
+            <h3 class="text-center mb-3">Popular Event Topics</h3>
+            <div id="word-cloud" class="text-center" style="height: 300px;"></div>
+        </div>
     </div>
 
     <!-- Modal for event details -->
@@ -56,6 +60,8 @@
     <script src='https://cdn.jsdelivr.net/npm/fullcalendar@5.10.1/main.js'></script>
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/jasondavies/d3-cloud/build/d3.layout.cloud.js"></script>
     
     <!-- Application code -->
     <script>
@@ -242,6 +248,66 @@
                 });
                 
                 calendar.render();
+
+                // Create word cloud
+                const words = {};
+                events.forEach(event => {
+                    // Split title into words and count frequencies
+                    event.title.split(/\s+/).forEach(word => {
+                        // Convert to lowercase and remove any non-alphanumeric characters
+                        word = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+                        // Ignore short words and common stop words
+                        const stopWords = new Set(['and', 'the', 'or', 'in', 'at', 'on', 'to', 'for', 'of', 'with']);
+                        if (word.length > 2 && !stopWords.has(word)) {
+                            words[word] = (words[word] || 0) + 1;
+                        }
+                    });
+                });
+
+                // Convert to array format for D3
+                const wordArray = Object.entries(words).map(([text, size]) => ({
+                    text,
+                    size: 10 + (size * 10) // Scale the font size
+                }));
+
+                // Set up the word cloud layout
+                const width = document.getElementById('word-cloud').offsetWidth;
+                const height = 300;
+
+                const layout = d3.layout.cloud()
+                    .size([width, height])
+                    .words(wordArray)
+                    .padding(5)
+                    .rotate(() => (~~(Math.random() * 2) * 90)) // Only rotate 0 or 90 degrees
+                    .fontSize(d => d.size)
+                    .on('end', draw);
+
+                function draw(words) {
+                    // Clear any existing word cloud
+                    d3.select('#word-cloud').selectAll('*').remove();
+
+                    // Create the SVG container
+                    const svg = d3.select('#word-cloud')
+                        .append('svg')
+                        .attr('width', width)
+                        .attr('height', height)
+                        .append('g')
+                        .attr('transform', `translate(${width/2},${height/2})`)
+                        .style('font-family', 'Arial');
+
+                    // Add words to the cloud
+                    svg.selectAll('text')
+                        .data(words)
+                        .enter()
+                        .append('text')
+                        .style('font-size', d => `${d.size}px`)
+                        .style('fill', () => `hsl(${Math.random() * 360}, 70%, 50%)`)
+                        .attr('text-anchor', 'middle')
+                        .attr('transform', d => `translate(${d.x},${d.y})rotate(${d.rotate})`)
+                        .text(d => d.text);
+                }
+
+                layout.start();
                 
             } catch (error) {
                 console.error('Error initializing application:', error);
