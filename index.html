@@ -30,6 +30,18 @@
 <body>
     <div class="container mt-4">
         <h1 class="text-center mb-4">Library Events Calendar</h1>
+        
+        <!-- Search Bar -->
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2">
+                <div class="input-group">
+                    <input type="text" id="search-input" class="form-control" placeholder="Search events (supports regex)...">
+                    <button class="btn btn-outline-secondary" type="button" id="search-clear">Clear</button>
+                </div>
+                <div class="form-text">Search in event titles, library names, and addresses</div>
+            </div>
+        </div>
+
         <div id="map"></div>
         <div id="calendar"></div>
         <div class="mt-4">
@@ -67,7 +79,9 @@
     <script>
         // Global state
         let events = [];
+        let allEvents = []; // Store all events for filtering
         let map;
+        let calendar;
 
         // Fetch events from CSV file
         async function fetchEvents() {
@@ -173,10 +187,123 @@
 
                 // Initialize map
                 map = L.map('map').setView([37.8715, -122.2730], 9);
+                
+                // Store all events for filtering
+                allEvents = [...events];
+                
                 const tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                     attribution: '© OpenStreetMap contributors'
                 });
                 tileLayer.addTo(map);
+
+                // Initialize search functionality
+                const searchInput = document.getElementById('search-input');
+                const searchClear = document.getElementById('search-clear');
+
+                function filterEvents(searchText) {
+                    try {
+                        const regex = new RegExp(searchText, 'i');
+                        const filteredEvents = allEvents.filter(event => {
+                            return regex.test(event.title) || 
+                                   regex.test(event.library.name) || 
+                                   regex.test(event.library.address);
+                        });
+                        
+                        // Update calendar events
+                        calendar.removeAllEvents();
+                        calendar.addEventSource(filteredEvents);
+                        
+                        // Update word cloud
+                        updateWordCloud(filteredEvents);
+                        
+                        // Update map markers
+                        updateMapMarkers(filteredEvents);
+                    } catch (e) {
+                        console.warn('Invalid regex:', e);
+                    }
+                }
+
+                function updateMapMarkers(filteredEvents) {
+                    // Clear existing markers
+                    map.eachLayer((layer) => {
+                        if (layer instanceof L.Marker) {
+                            map.removeLayer(layer);
+                        }
+                    });
+
+                    // Group events by library
+                    const libraries = {};
+                    filteredEvents.forEach(event => {
+                        const library = event.library;
+                        if (!libraries[library.address]) {
+                            libraries[library.address] = {
+                                name: library.name,
+                                url: library.url,
+                                events: []
+                            };
+                        }
+                        libraries[library.address].events.push(event);
+                    });
+
+                    // Add new markers
+                    Object.entries(libraries).forEach(([address, library]) => {
+                        fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data && data.length > 0) {
+                                    const marker = L.marker([data[0].lat, data[0].lon]);
+                                    const popupContent = `
+                                        <b>${library.name}</b><br>
+                                        ${address}<br>
+                                        <a href="${library.url}" target="_blank">Library Website</a><br>
+                                        Events: ${library.events.length}
+                                    `;
+                                    marker.bindPopup(popupContent);
+                                    marker.addTo(map);
+                                }
+                            })
+                            .catch(error => console.error('Error geocoding address:', error));
+                    });
+                }
+
+                function updateWordCloud(filteredEvents) {
+                    // Update word cloud with filtered events
+                    const words = {};
+                    filteredEvents.forEach(event => {
+                        event.title.split(/\s+/).forEach(word => {
+                            word = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const stopWords = new Set(['and', 'the', 'or', 'in', 'at', 'on', 'to', 'for', 'of', 'with']);
+                            if (word.length > 2 && !stopWords.has(word)) {
+                                words[word] = (words[word] || 0) + 1;
+                            }
+                        });
+                    });
+
+                    const wordArray = Object.entries(words)
+                        .sort((a, b) => b[1] - a[1]) // Sort by frequency
+                        .slice(0, 50) // Limit to top 50 words
+                        .map(([text, freq]) => ({
+                            text,
+                            size: Math.max(15, Math.min(50, 15 + freq * 5)) // Size between 15-50px
+                        }));
+
+                    // Redraw word cloud
+                    draw(wordArray);
+                }
+
+                // Set up search event handlers
+                let searchTimeout;
+                searchInput.addEventListener('input', (e) => {
+                    clearTimeout(searchTimeout);
+                    searchTimeout = setTimeout(() => {
+                        filterEvents(e.target.value);
+                    }, 300); // Debounce search for better performance
+                });
+
+                searchClear.addEventListener('click', () => {
+                    searchInput.value = '';
+                    filterEvents('');
+                });
 
                 // Process events for map
                 const libraries = {};
@@ -214,7 +341,7 @@
 
                 // Initialize calendar
                 const calendarEl = document.getElementById('calendar');
-                const calendar = new FullCalendar.Calendar(calendarEl, {
+                calendar = new FullCalendar.Calendar(calendarEl, {
                     initialView: 'dayGridMonth',
                     headerToolbar: {
                         left: 'prev,next today',
@@ -274,40 +401,43 @@
                 const width = document.getElementById('word-cloud').offsetWidth;
                 const height = 300;
 
-                const layout = d3.layout.cloud()
-                    .size([width, height])
-                    .words(wordArray)
-                    .padding(5)
-                    .rotate(() => (~~(Math.random() * 2) * 90)) // Only rotate 0 or 90 degrees
-                    .fontSize(d => d.size)
-                    .on('end', draw);
-
                 function draw(words) {
                     // Clear any existing word cloud
                     d3.select('#word-cloud').selectAll('*').remove();
 
-                    // Create the SVG container
-                    const svg = d3.select('#word-cloud')
-                        .append('svg')
-                        .attr('width', width)
-                        .attr('height', height)
-                        .append('g')
-                        .attr('transform', `translate(${width/2},${height/2})`)
-                        .style('font-family', 'Arial');
+                    // Create new layout for these words
+                    d3.layout.cloud()
+                        .size([width, height])
+                        .words(words)
+                        .padding(5)
+                        .rotate(() => (~~(Math.random() * 2) * 90)) // Only rotate 0 or 90 degrees
+                        .fontSize(d => d.size)
+                        .on('end', function(layoutWords) {
+                            // Create the SVG container
+                            const svg = d3.select('#word-cloud')
+                                .append('svg')
+                                .attr('width', width)
+                                .attr('height', height)
+                                .append('g')
+                                .attr('transform', `translate(${width/2},${height/2})`)
+                                .style('font-family', 'Arial');
 
-                    // Add words to the cloud
-                    svg.selectAll('text')
-                        .data(words)
-                        .enter()
-                        .append('text')
-                        .style('font-size', d => `${d.size}px`)
-                        .style('fill', () => `hsl(${Math.random() * 360}, 70%, 50%)`)
-                        .attr('text-anchor', 'middle')
-                        .attr('transform', d => `translate(${d.x},${d.y})rotate(${d.rotate})`)
-                        .text(d => d.text);
+                            // Add words to the cloud
+                            svg.selectAll('text')
+                                .data(layoutWords)
+                                .enter()
+                                .append('text')
+                                .style('font-size', d => `${d.size}px`)
+                                .style('fill', () => `hsl(${Math.random() * 360}, 70%, 50%)`)
+                                .attr('text-anchor', 'middle')
+                                .attr('transform', d => `translate(${d.x},${d.y})rotate(${d.rotate})`)
+                                .text(d => d.text);
+                        })
+                        .start();
                 }
 
-                layout.start();
+                // Initial word cloud
+                draw(wordArray);
                 
             } catch (error) {
                 console.error('Error initializing application:', error);
